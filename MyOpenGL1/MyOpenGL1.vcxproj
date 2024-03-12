@@ -133,7 +133,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="glad.c" />
+    <ClCompile Include="components.cpp" />
     <ClCompile Include="includes\glad\glad.c" />
     <ClCompile Include="includes\glm\detail\glm.cpp" />
     <ClCompile Include="main.cpp" />
@@ -141,6 +141,8 @@
     <ClCompile Include="ShaderLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="components.h" />
+    <ClInclude Include="entity.h" />
     <ClInclude Include="includes\glad\glad.h" />
     <ClInclude Include="includes\GLFW\glfw3.h" />
     <ClInclude Include="includes\GLFW\glfw3native.h" />
@@ -427,7 +429,9 @@
     <ClInclude Include="includes\glm\vec4.hpp" />
     <ClInclude Include="includes\glm\vector_relational.hpp" />
     <ClInclude Include="includes\KHR\khrplatform.h" />
+    <ClInclude Include="includes\stb_image.h" />
     <ClInclude Include="ObjHelper.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="ShaderLoader.h" />
   </ItemGroup>
   <ItemGroup>
@@ -575,6 +579,9 @@
     <None Include="libs\glfw3.dll" />
     <None Include="sfrag.glsl" />
     <None Include="svert.glsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="MyOpenGL1.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

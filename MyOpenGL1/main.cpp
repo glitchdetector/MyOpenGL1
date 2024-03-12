@@ -12,7 +12,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include "ShaderLoader.h"
+#include "entity.h"
 
 // Number of properties per vertex in the vertex table
 constexpr int VERTEX_DEF_LENGTH = 8;
@@ -156,35 +160,92 @@ void ConcatMeshes(std::vector<Vertex>& vertices, std::vector<int>& indices, std:
 	}
 }
 
-void ReadObjectFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
+struct ObjectFileReturnInfo
+{
+    bool bHasTextureData = false;
+    bool bHasNormalData = false;
+    bool bSuccess = false;
+    int nVertices = 0;
+    int nFaces = 0;
+    int nObjects = 0;
+    void print()
+    {
+        std::cout << "Object Properties" << std::endl;
+        std::cout << "Loaded: " << bSuccess << std::endl;
+        std::cout << "Has Texture Data: " << bHasTextureData << std::endl;
+        std::cout << "Has Normal Data: " << bHasNormalData << std::endl;
+        std::cout << "Vertices: " << nVertices << std::endl;
+        std::cout << "Faces: " << nFaces << std::endl;
+        std::cout << "Meshes: " << nObjects << std::endl;
+    }
+};
+
+ObjectFileReturnInfo ReadObjectFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
 {
     std::ifstream in;
     in.open(fileName);
+
+    ObjectFileReturnInfo output;
 
     //vertices.push_back(Vertex{ 0,0,0,0,0,0,0,0 });
 
     if (!in.is_open())
     {
         std::cout << "Could not open file " << fileName << std::endl;
-        return;
+        return output;
     }
     std::cout << "Reading file " << fileName << std::endl;
 
+    struct TempVertex
+    {
+        float x, y, z;
+        float r, g, b;
+    };
+    std::vector<TempVertex> vertex_vector;
+
+    struct TempUV
+    {
+        float u, v;
+    };
+    std::vector<TempUV> uv_vector;
+
+    struct TempNormal
+    {
+        float x, y, z;
+    };
+    std::vector<TempNormal> normal_vector;
+
+    bool bHasUVData = false;
+
     std::string line;
 
-    char prefix;
+    std::string prefix;
     in >> prefix;
     while (!in.eof())
     {
-        switch (prefix)
-        {
-        case '#':
+        if (prefix == "#") {
             std::getline(in, line);
             std::cout << line << std::endl;
-            break;
-        case 'v':
+        } else if (prefix == "vn") {
+            // Normal data
+            TempNormal normal;
+            in
+                >> normal.x
+                >> normal.y
+                >> normal.z;
+            normal_vector.push_back(normal);
+            output.bHasNormalData = true;
+        } else if (prefix == "vt") {
+            // Vertex Texture (UV)
+            TempUV uv;
+            in
+                >> uv.u
+                >> uv.v;
+            uv_vector.push_back(uv);
+            output.bHasTextureData = true;
+        } else if (prefix == "v") {
             // Vertex
-            Vertex v;
+            TempVertex v;
             in
         		>> v.x
         		>> v.y
@@ -192,42 +253,67 @@ void ReadObjectFile(std::string fileName, std::vector<Vertex>& vertices, std::ve
         		>> v.r
         		>> v.g
         		>> v.b;
-            v.u = 0.f;
-            v.v = 0.f;
-            vertices.push_back(v);
-            break;
-        case 'f':
-            int v1, v2, v3;
-            in
-                >> v1
-                >> v2
-                >> v3;
-            indices.push_back(v1 - 1);
-            indices.push_back(v2 - 1);
-            indices.push_back(v3 - 1);
-            break;
-        case 'o':
+            vertex_vector.push_back(v);
+        } else if (prefix == "f") {
+            // Go over each point in the face
+            for (int i = 0; i < 3; i++)
+            {
+                std::string vertex;
+                in >> vertex;
+
+                std::string string;
+                std::istringstream iss(vertex);
+
+                int vertexIndex;
+                iss >> vertexIndex;
+
+                TempVertex t = vertex_vector[vertexIndex - 1];
+                Vertex v{ t.x, t.y, t.z, t.r, t.g, t.b, 0.f, 0.f };
+
+                if (output.bHasTextureData)
+                {
+                    std::getline(iss, string, '/');
+                    int uvIndex;
+                    iss >> uvIndex;
+
+                    TempUV uv = uv_vector[uvIndex - 1];
+                    v.u = uv.u;
+                    v.v = 1.f - uv.v;
+                }
+                if (output.bHasNormalData) 
+                {
+                    // Unused by our program
+                }
+                vertices.push_back(v);
+                indices.push_back(vertices.size() - 1);
+            }
+            output.nFaces++;
+        } else if (prefix == "o") {
             std::getline(in, line);
             std::cout << "Object " << line << std::endl;
-            break;
-        case 's':
+            output.nObjects++;
+        } else if (prefix == "s") {
             int shadeSmooth;
             in >> shadeSmooth;
             if (shadeSmooth == 1) {
                 std::cout << "Set smooth shading" << std::endl;
-            } else {
-	            std::cout << "Set flat shading" << std::endl;
             }
-            break;
-        default:
+            else {
+                std::cout << "Set flat shading" << std::endl;
+            }
+        } else if (prefix == "usemtl") {
+            std::getline(in, line);
+            std::cout << "Using material " << line << std::endl;
+        } else {
             std::getline(in, line);
             std::cout << "Unknown line " << line << std::endl;
-            break;
         }
         in >> prefix;
     }
-
+    output.nVertices = vertex_vector.size();
+    output.bSuccess = true;
     std::cout << "Loaded " << fileName << " with " << vertices.size() << " verts and " << (indices.size() / 3) << " tris." << std::endl;
+    return output;
 }
 
 int CurrentRenderMode = GL_TRIANGLES;
@@ -240,10 +326,22 @@ struct CameraOffset
 
 CameraOffset cameraOffset = { 0, 0, 0, 0, 0, 0 };
 
-int main()
+int main(int argc, char** argv)
 {
     // glfw: initialize and configure
     // ------------------------------
+
+    std::string objectFileName = "export.obj";
+    std::string textureFileName = "texture.png";
+    for (int i = 0; i < argc; i++)
+    {
+        std::cout << i << ": " << argv[i] << std::endl;
+    }
+
+    // Select object and texture files, drag the object file onto the executable
+    if (argc > 1) objectFileName = argv[1];
+    if (argc > 2) textureFileName = argv[2];
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -318,7 +416,8 @@ int main()
     glDeleteShader(fragmentShader);
 
     // set up shader variables
-    GLint timePassedLocation = glGetUniformLocation(shaderProgram, "timePassed");
+    unsigned int timePassedLocation = glGetUniformLocation(shaderProgram, "timePassed");
+    unsigned int bUseTextureLoc = glGetUniformLocation(shaderProgram, "bUseTexture");
     unsigned int transformLoc = glGetUniformLocation(shaderProgram, "transform");
     unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
@@ -350,7 +449,8 @@ int main()
     std::vector<Vertex> vertices;
     std::vector<int> indices;
 
-    ReadObjectFile("legion.obj", vertices, indices);
+    ObjectFileReturnInfo object = ReadObjectFile(objectFileName, vertices, indices);
+    object.print();
 
     //ReadTriangleStripFile("plane.txt", vertices, indices);
     CurrentRenderMode = GL_TRIANGLES;
@@ -400,6 +500,8 @@ int main()
 
     glDepthRange(0.0, 10000.0);
 
+
+
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
 
@@ -414,6 +516,29 @@ int main()
 
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
+
+    unsigned int texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
+    // set the texture wrapping parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    // set texture filtering parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    int width, height, nChannels;
+    unsigned char* data = stbi_load(textureFileName.c_str(), &width, &height, &nChannels, 0);
+    if (data)
+    {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    else
+    {
+        std::cout << "Failed to load texture";
+    }
+    stbi_image_free(data);
 
     glLineWidth(0.1);
 
@@ -448,6 +573,15 @@ int main()
         
 		// Update shader variables
 		glUniform1f(timePassedLocation, (float) currentFrameTime);
+
+        glBindTexture(GL_TEXTURE_2D, texture);
+
+
+        if (object.bHasTextureData) {
+            glUniform1i(bUseTextureLoc, 1);
+        } else {
+            glUniform1i(bUseTextureLoc, 0);
+        }
 
         // create transformations
         glm::mat4 transform = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
@@ -503,16 +637,28 @@ bool hasKeyJustBeenPressed(GLFWwindow* window, int key) {
 
 
 struct MovementInput {
-    float x, y, z, pitch, yaw, roll;
+    float x, y, z, pitch, yaw, roll, px, py, pz;
 };
 
 MovementInput processMovementInput(GLFWwindow* window)
 {
-    MovementInput movement = { 0, 0, 0, 0 };
+    MovementInput movement = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    // Player Movement WSAD
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        movement.py += 1;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        movement.py -= 1;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        movement.px -= 1;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        movement.px += 1;
+
+    // Camera Controls
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-		movement.z += 1;
+        movement.z += 1;
     if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-		movement.z -= 1;
+        movement.z -= 1;
     if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
         movement.x -= 1;
     if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
