@@ -10,7 +10,7 @@ uniform vec3 viewPos;
 
 void main()
 {
-	vec3 viewDir = normalize(viewPos - FragPos);
+	//vec3 viewDir = normalize(viewPos - FragPos);
 	//gl_FragColor = vec4(color, 1.0);
 	if (bUseTexture) {
 		gl_FragColor = texture(texture_1, texture_coord);

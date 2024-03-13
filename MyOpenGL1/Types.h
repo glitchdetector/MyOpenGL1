@@ -9,8 +9,8 @@ struct Vertex
 // In-world transformations
 struct Transformation
 {
-    float x, y, z;
-    float pitch, yaw, roll;
+    float x = 0.0, y = 0.0, z = 0.0;
+    float pitch = 0.0, yaw = 0.0, roll = 0.0;
     float scale_x = 1.0, scale_y = 1.0, scale_z = 1.0;
     Transformation() = default;
 };

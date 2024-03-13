@@ -104,8 +104,7 @@ MovementInput processMovementInput(GLFWwindow* window)
 
 int CurrentRenderMode = GL_TRIANGLES;
 
-Transformation cameraTransform = {};
-Transformation playerTransform = {};
+Entity player;
 
 int main(int argc, char** argv)
 {
@@ -222,6 +221,9 @@ int main(int argc, char** argv)
 #pragma region Buffer Mesh Loading
 
     CurrentRenderMode = GL_TRIANGLES;
+
+    ReadObjectFile("player.obj", player.vertices, player.indices);
+    level.entities.push_back(player);
 
     std::cout << "Entities: " << level.entities.size() << std::endl;
     for (int i = 0; i < level.entities.size(); i++)
@@ -397,6 +399,15 @@ void processInput(GLFWwindow* window)
     if (hasKeyJustBeenPressed(window, GLFW_KEY_ESCAPE))
         glfwSetWindowShouldClose(window, true);
 
+    if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS)
+        player.transformation.z += 0.1f;
+    if (glfwGetKey(window, GLFW_KEY_KP_5) == GLFW_PRESS)
+        player.transformation.z -= 0.1f;
+    if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS)
+        player.transformation.x -= 0.1f;
+    if (glfwGetKey(window, GLFW_KEY_KP_6) == GLFW_PRESS)
+        player.transformation.x += 0.1f;
+
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
@@ -405,11 +416,6 @@ void processInput(GLFWwindow* window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
-
-    if (wasAnyInputPressed)
-    {
-        std::cout << "Camera transform {" << cameraTransform.pitch << ", " << cameraTransform.yaw << ", " << cameraTransform.roll << "}" << std::endl;
-    }
 
     // Wireframe mode toggle
     if (hasKeyJustBeenPressed(window, GLFW_KEY_T)) {
