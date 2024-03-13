@@ -15,19 +15,21 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#include "ShaderLoader.h"
-#include "entity.h"
+#include "Types.h"
+#include "ObjectFileLoader.h" // Can load and prepare .obj files to be rendered
 
+#include "ShaderLoader.h" // Can load and prepare shader files  
+#include "Level.h"
+
+#include "Camera.h"
 // Number of properties per vertex in the vertex table
 constexpr int VERTEX_DEF_LENGTH = 8;
-struct Vertex
-{
-    float x, y, z, r, g, b, u, v;
-};
 
 // If anything happens to your frame, this is called
 // resizing etc
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 
 // settings
@@ -39,109 +41,16 @@ const char* vertexShaderSource = vertexShaderSourceStr.c_str();
 std::string fragmentShaderSourceStr = ShaderLoader::LoadShaderFromFile("sfrag.glsl");
 const char* fragmentShaderSource = fragmentShaderSourceStr.c_str();
 
-//vertex shader source 
+// camera
+Camera camera(glm::vec3(0.0f, 2.0f, 3.0f));
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+bool firstMouse = true;
 
-//const char* vertexShaderSource = R"RRERR(
-//#version 330 core
-//
-//layout (location = 0) in vec3 aPos;
-//layout (location = 1) in vec3 aCol;
-//layout (location = 2) in vec2 aUV;
-//
-//out vec3 color;
-//
-//void main()
-//{
-//	gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
-//	color = aCol;
-//}
-//)RRERR";
-
-//const char* fragmentShaderSource = R"RRERR(
-//#version 330 core
-//
-//in vec3 color;
-//
-//void main()
-//{
-//	gl_FragColor = vec4(color, 1.0);
-//}
-//)RRERR";
+float deltaTime = 0.0f;	// time between current frame and last frame
 
 void forcePrecision(std::ostream& stream, int decimals) {
     stream << std::fixed << std::setprecision(decimals);
-}
-
-std::vector<float> readVerticesFromFile(std::string fileName)
-{
-    std::ifstream in;
-    in.open(fileName);
-
-    int size;
-    in >> size;
-
-    std::cout << "Reading " << size << " vertices from file " << fileName << std::endl;
-
-    int dataPointsToRead = VERTEX_DEF_LENGTH * size;
-
-    std::vector<float> vertices;
-    vertices.resize(dataPointsToRead);
-
-    forcePrecision(std::cout, 4);
-
-    for (int i = 0; i < dataPointsToRead; i++)
-    {
-	    in >> vertices[i];
-	}
-
-    return vertices;
-}
-
-void ReadVertexDataFile(std::string fileName, std::vector<Vertex>& vertices)
-{
-    std::ifstream in;
-    in.open(fileName);
-
-    int size;
-    in >> size;
-
-    for (int i = 0; i < size; i++)
-    {
-        Vertex v;
-        in
-            >> v.x
-            >> v.y
-            >> v.z
-            >> v.r
-            >> v.g
-            >> v.b
-            >> v.u
-            >> v.v;
-        vertices.push_back(v);
-    }
-}
-
-void ReadLineFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
-{
-	ReadVertexDataFile(fileName, vertices);
-
-	for (int i = 1; i < vertices.size(); i += 1)
-	{
-		indices.push_back(i - 1);
-		indices.push_back(i - 0);
-	}
-}
-
-void ReadTriangleStripFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
-{
-    ReadVertexDataFile(fileName, vertices);
-
-	for (int i = 2; i < vertices.size(); i += 1)
-	{
-		indices.push_back(i - 2);
-		indices.push_back(i - 1);
-		indices.push_back(i - 0);
-	}
 }
 
 void ConcatMeshes(std::vector<Vertex>& vertices, std::vector<int>& indices, std::vector<Vertex>& newVerts, std::vector<int>& newIndices)
@@ -160,178 +69,51 @@ void ConcatMeshes(std::vector<Vertex>& vertices, std::vector<int>& indices, std:
 	}
 }
 
-struct ObjectFileReturnInfo
-{
-    bool bHasTextureData = false;
-    bool bHasNormalData = false;
-    bool bSuccess = false;
-    int nVertices = 0;
-    int nFaces = 0;
-    int nObjects = 0;
-    void print()
-    {
-        std::cout << "Object Properties" << std::endl;
-        std::cout << "Loaded: " << bSuccess << std::endl;
-        std::cout << "Has Texture Data: " << bHasTextureData << std::endl;
-        std::cout << "Has Normal Data: " << bHasNormalData << std::endl;
-        std::cout << "Vertices: " << nVertices << std::endl;
-        std::cout << "Faces: " << nFaces << std::endl;
-        std::cout << "Meshes: " << nObjects << std::endl;
-    }
+struct MovementInput {
+    float x, y, jump;
 };
 
-ObjectFileReturnInfo ReadObjectFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
+bool wasAnyInputPressed = false;
+bool IsKeyHeld(GLFWwindow* window, int key)
 {
-    std::ifstream in;
-    in.open(fileName);
+    bool result = (glfwGetKey(window, key) == GLFW_PRESS);
+    if (result) wasAnyInputPressed = true;
+    return result;
+}
 
-    ObjectFileReturnInfo output;
+MovementInput processMovementInput(GLFWwindow* window)
+{
+    MovementInput movement = { 0, 0, 0 };
 
-    //vertices.push_back(Vertex{ 0,0,0,0,0,0,0,0 });
+    wasAnyInputPressed = false;
 
-    if (!in.is_open())
-    {
-        std::cout << "Could not open file " << fileName << std::endl;
-        return output;
-    }
-    std::cout << "Reading file " << fileName << std::endl;
+    // Player Movement WSAD
+    if (IsKeyHeld(window, GLFW_KEY_W))
+        movement.y += 1;
+    if (IsKeyHeld(window, GLFW_KEY_S))
+        movement.y -= 1;
+    if (IsKeyHeld(window, GLFW_KEY_A))
+        movement.x -= 1;
+    if (IsKeyHeld(window, GLFW_KEY_D))
+        movement.x += 1;
+    if (IsKeyHeld(window, GLFW_KEY_SPACE))
+        movement.jump += 1;
 
-    struct TempVertex
-    {
-        float x, y, z;
-        float r, g, b;
-    };
-    std::vector<TempVertex> vertex_vector;
-
-    struct TempUV
-    {
-        float u, v;
-    };
-    std::vector<TempUV> uv_vector;
-
-    struct TempNormal
-    {
-        float x, y, z;
-    };
-    std::vector<TempNormal> normal_vector;
-
-    bool bHasUVData = false;
-
-    std::string line;
-
-    std::string prefix;
-    in >> prefix;
-    while (!in.eof())
-    {
-        if (prefix == "#") {
-            std::getline(in, line);
-            std::cout << line << std::endl;
-        } else if (prefix == "vn") {
-            // Normal data
-            TempNormal normal;
-            in
-                >> normal.x
-                >> normal.y
-                >> normal.z;
-            normal_vector.push_back(normal);
-            output.bHasNormalData = true;
-        } else if (prefix == "vt") {
-            // Vertex Texture (UV)
-            TempUV uv;
-            in
-                >> uv.u
-                >> uv.v;
-            uv_vector.push_back(uv);
-            output.bHasTextureData = true;
-        } else if (prefix == "v") {
-            // Vertex
-            TempVertex v;
-            in
-        		>> v.x
-        		>> v.y
-        		>> v.z
-        		>> v.r
-        		>> v.g
-        		>> v.b;
-            vertex_vector.push_back(v);
-        } else if (prefix == "f") {
-            // Go over each point in the face
-            for (int i = 0; i < 3; i++)
-            {
-                std::string vertex;
-                in >> vertex;
-
-                std::string string;
-                std::istringstream iss(vertex);
-
-                int vertexIndex;
-                iss >> vertexIndex;
-
-                TempVertex t = vertex_vector[vertexIndex - 1];
-                Vertex v{ t.x, t.y, t.z, t.r, t.g, t.b, 0.f, 0.f };
-
-                if (output.bHasTextureData)
-                {
-                    std::getline(iss, string, '/');
-                    int uvIndex;
-                    iss >> uvIndex;
-
-                    TempUV uv = uv_vector[uvIndex - 1];
-                    v.u = uv.u;
-                    v.v = 1.f - uv.v;
-                }
-                if (output.bHasNormalData) 
-                {
-                    // Unused by our program
-                }
-                vertices.push_back(v);
-                indices.push_back(vertices.size() - 1);
-            }
-            output.nFaces++;
-        } else if (prefix == "o") {
-            std::getline(in, line);
-            std::cout << "Object " << line << std::endl;
-            output.nObjects++;
-        } else if (prefix == "s") {
-            int shadeSmooth;
-            in >> shadeSmooth;
-            if (shadeSmooth == 1) {
-                std::cout << "Set smooth shading" << std::endl;
-            }
-            else {
-                std::cout << "Set flat shading" << std::endl;
-            }
-        } else if (prefix == "usemtl") {
-            std::getline(in, line);
-            std::cout << "Using material " << line << std::endl;
-        } else {
-            std::getline(in, line);
-            std::cout << "Unknown line " << line << std::endl;
-        }
-        in >> prefix;
-    }
-    output.nVertices = vertex_vector.size();
-    output.bSuccess = true;
-    std::cout << "Loaded " << fileName << " with " << vertices.size() << " verts and " << (indices.size() / 3) << " tris." << std::endl;
-    return output;
+    return movement;
 }
 
 int CurrentRenderMode = GL_TRIANGLES;
 
-struct CameraOffset
-{
-    float x, y, z;
-    float pitch, yaw, roll;
-};
-
-CameraOffset cameraOffset = { 0, 0, 0, 0, 0, 0 };
+Transformation cameraTransform = {};
+Transformation playerTransform = {};
 
 int main(int argc, char** argv)
 {
     // glfw: initialize and configure
     // ------------------------------
 
-    std::string objectFileName = "export.obj";
+#pragma region Program Input
+    std::string levelFile = "level.data";
     std::string textureFileName = "texture.png";
     for (int i = 0; i < argc; i++)
     {
@@ -339,8 +121,19 @@ int main(int argc, char** argv)
     }
 
     // Select object and texture files, drag the object file onto the executable
-    if (argc > 1) objectFileName = argv[1];
-    if (argc > 2) textureFileName = argv[2];
+    if (argc > 1) textureFileName = argv[1];
+    if (argc > 2) levelFile = argv[2];
+#pragma endregion
+#pragma region Level Loading
+    Level level = Level(levelFile);
+    camera.Position = glm::vec3(
+        level.cameraPosition.x,
+        level.cameraPosition.y,
+        level.cameraPosition.z
+    );
+
+#pragma endregion
+#pragma region GLFW Initialization
 
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -362,6 +155,8 @@ int main(int argc, char** argv)
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
 
     // glad: load all OpenGL function pointers
@@ -372,8 +167,8 @@ int main(int argc, char** argv)
         return -1;
     }
 
-
-
+#pragma endregion
+#pragma region Shader Setup
 
     // build and compile our shader program
     // ------------------------------------
@@ -418,105 +213,56 @@ int main(int argc, char** argv)
     // set up shader variables
     unsigned int timePassedLocation = glGetUniformLocation(shaderProgram, "timePassed");
     unsigned int bUseTextureLoc = glGetUniformLocation(shaderProgram, "bUseTexture");
-    unsigned int transformLoc = glGetUniformLocation(shaderProgram, "transform");
+    unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
+    unsigned int viewPosLoc = glGetUniformLocation(shaderProgram, "viewPos");
     unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+    unsigned int entityMatrixLoc = glGetUniformLocation(shaderProgram, "entityMatrix");
 
+#pragma endregion
+#pragma region Buffer Mesh Loading
 
-    // set up vertex data (and buffer(s)) and configure vertex attributes
-    // ------------------------------------------------------------------
-  //  float vertices[] = {
-        ////  X      Y      Z    R    G    B    U    V
-      //      -0.5f, -0.5f,  0.0f, 1.0, 0.0, 0.0, 0.0, 0.0, // top left  
-      //      -0.5f,  0.5f,  0.0f, 0.0, 1.0, 0.0, 0.0, 1.0, // bottom left
-      //       0.5f,  0.5f,  0.0f, 0.0, 0.0, 1.0, 1.0, 1.0, // bottom right
-      //       0.5f, -0.5f,  0.0f, 1.0, 1.0, 0.0, 1.0, 0.0, // top right
-  //  };
-
-    //std::vector<float> vertices = {
-    //    //  X      Y      Z     R     G     B     U     V
-    //    -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, // top left  
-    //    -0.5f,  0.5f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // bottom left
-    //     0.5f, -0.5f,  0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, // top right
-    //     0.5f,  0.5f,  0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, // bottom right
-    //     0.7f,  0.7f,  0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, // bottom right
-    //     0.8f, -0.2f,  0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, // bottom right
-    //};
-
-    //std::vector<int> indices = {
-    //	1, 2, 0, // first triangle
-    //	2, 3, 1,  // second triangle
-    //};
-    std::vector<Vertex> vertices;
-    std::vector<int> indices;
-
-    ObjectFileReturnInfo object = ReadObjectFile(objectFileName, vertices, indices);
-    object.print();
-
-    //ReadTriangleStripFile("plane.txt", vertices, indices);
     CurrentRenderMode = GL_TRIANGLES;
 
-    std::vector<Vertex> tempVerts;
-    std::vector<int> tempIndices;
+    std::cout << "Entities: " << level.entities.size() << std::endl;
+    for (int i = 0; i < level.entities.size(); i++)
+    {
+        unsigned int VBO, VAO, EBO;
+        Entity entity = level.entities[i];
 
-    //ReadTriangleStripFile("trianglestrip.txt", tempVerts, tempIndices);
+        glGenVertexArrays(1, &VAO);
+        glBindVertexArray(VAO);
 
-    ConcatMeshes(vertices, indices, tempVerts, tempIndices);
+        glGenBuffers(1, &VBO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, entity.vertices.size() * sizeof(Vertex), entity.vertices.data(), GL_STATIC_DRAW);
 
- //   std::vector<float> vertices = readVerticesFromFile("vertices.txt");
+        glGenBuffers(1, &EBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, entity.indices.size() * sizeof(int), entity.indices.data(), GL_STATIC_DRAW);
 
- //   const int vertexCount = vertices.size() / VERTEX_DEF_LENGTH;
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
 
- //   std::vector<int> indices;
- //   // treat each sequential vertex a new triangle
- //   for (int i = 2; i < vertexCount; i += 1)
- //   {
- //       indices.push_back(i - 2);
- //       indices.push_back(i - 1);
- //       indices.push_back(i - 0);
- //   }
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
 
- //   for (int i = 0; i < vertices.size(); i++) {
- //       if (i % VERTEX_DEF_LENGTH == 0) {
- //           std::cout << std::endl;
- //       }
-	//    std::cout << " " << vertices[i];
-	//}
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
 
-    //int indices[] = {
-    //    0, 1, 2, // first triangle
-    //    2, 3, 0,  // second triangle
-    //};
+        glBindVertexArray(0);
 
-    unsigned int EBO;
-    glGenBuffers(1, &EBO);
-
-    unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    // bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
-    glBindVertexArray(VAO);
+        std::cout << i << ": " << VAO << std::endl;
+        entity.VAO = VAO;
+        entity.VBO = VBO;
+        entity.EBO = EBO;
+	}
 
     glEnable(GL_DEPTH_TEST);
-
     glDepthRange(0.0, 10000.0);
 
+#pragma endregion
 
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(int), indices.data(), GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
+#pragma region Texture Loading
     unsigned int texture;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
@@ -539,6 +285,7 @@ int main(int argc, char** argv)
         std::cout << "Failed to load texture";
     }
     stbi_image_free(data);
+#pragma endregion
 
     glLineWidth(0.1);
 
@@ -558,7 +305,7 @@ int main(int argc, char** argv)
     while (!glfwWindowShouldClose(window))
     {
 		double currentFrameTime = glfwGetTime();
-        double deltaTime = currentFrameTime - previousFrameTime;
+        deltaTime = currentFrameTime - previousFrameTime;
 		previousFrameTime = currentFrameTime;
 		
         // input
@@ -576,30 +323,36 @@ int main(int argc, char** argv)
 
         glBindTexture(GL_TEXTURE_2D, texture);
 
+        glUniform1i(bUseTextureLoc, 1);
 
-        if (object.bHasTextureData) {
-            glUniform1i(bUseTextureLoc, 1);
-        } else {
-            glUniform1i(bUseTextureLoc, 0);
-        }
+        glm::mat4 view = camera.GetViewMatrix();
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-        // create transformations
-        glm::mat4 transform = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
-        transform = glm::translate(transform, glm::vec3(cameraOffset.x, cameraOffset.y, cameraOffset.z));
-        transform = glm::rotate(transform, cameraOffset.pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-        transform = glm::rotate(transform, cameraOffset.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-        transform = glm::rotate(transform, cameraOffset.roll, glm::vec3(0.0f, 0.0f, 1.0f));
-        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+        glUniformMatrix4fv(viewPosLoc, 1, GL_FALSE, glm::value_ptr(camera.Position));
 
-        // create perspective projection
-    	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-		
-        // draw our first triangle
-        glUseProgram(shaderProgram);
-        glBindVertexArray(VAO); // seeing as we only have a single VAO there's no need to bind it every time, but we'll do so to keep things a bit more organized
-        glDrawElements(CurrentRenderMode, indices.size(), GL_UNSIGNED_INT, 0);
-        // glBindVertexArray(0); // no need to unbind it every time 
+
+        //camera.updateCameraVectors();
+
+        for (int i = 0; i < level.entities.size(); i++)
+        {
+            Entity entity = level.entities[i];
+            // draw our first triangle
+            glUseProgram(shaderProgram);
+
+            glBindVertexArray(i + 1);
+            // Calculate the entity matrix
+            glm::mat4 entityMatrix = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
+            entityMatrix = glm::translate(entityMatrix, glm::vec3(entity.transformation.x, entity.transformation.y, entity.transformation.z));
+            entityMatrix = glm::rotate(entityMatrix, entity.transformation.pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+            entityMatrix = glm::rotate(entityMatrix, entity.transformation.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            entityMatrix = glm::rotate(entityMatrix, entity.transformation.roll, glm::vec3(0.0f, 0.0f, 1.0f));
+            glUniformMatrix4fv(entityMatrixLoc, 1, GL_FALSE, glm::value_ptr(entityMatrix));
+
+            glDrawElements(CurrentRenderMode, entity.indices.size(), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0); 
+        }
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -609,8 +362,11 @@ int main(int argc, char** argv)
 
     // optional: de-allocate all resources once they've outlived their purpose:
     // ------------------------------------------------------------------------
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
+    for (Entity entity : level.entities)
+    {
+        glDeleteVertexArrays(1, &entity.VAO);
+        glDeleteBuffers(1, &entity.VBO);
+    }
     glDeleteProgram(shaderProgram);
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
@@ -635,72 +391,28 @@ bool hasKeyJustBeenPressed(GLFWwindow* window, int key) {
     return false;
 }
 
-
-struct MovementInput {
-    float x, y, z, pitch, yaw, roll, px, py, pz;
-};
-
-MovementInput processMovementInput(GLFWwindow* window)
-{
-    MovementInput movement = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-
-    // Player Movement WSAD
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        movement.py += 1;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        movement.py -= 1;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        movement.px -= 1;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        movement.px += 1;
-
-    // Camera Controls
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-        movement.z += 1;
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-        movement.z -= 1;
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-        movement.x -= 1;
-    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-        movement.x += 1;
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-        movement.y += 1;
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-        movement.y -= 1;
-    if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS)
-        movement.yaw -= 1;
-    if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
-        movement.yaw += 1;
-    if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS)
-        movement.pitch -= 1;
-    if (glfwGetKey(window, GLFW_KEY_KP_5) == GLFW_PRESS)
-        movement.pitch += 1;
-    if (glfwGetKey(window, GLFW_KEY_KP_6) == GLFW_PRESS)
-        movement.roll -= 1;
-    if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS)
-        movement.roll += 1;
-    return movement;
-}
-
 bool isWireframeModeEnabled = false;
 void processInput(GLFWwindow* window)
 {
     if (hasKeyJustBeenPressed(window, GLFW_KEY_ESCAPE))
         glfwSetWindowShouldClose(window, true);
 
-    MovementInput movement = processMovementInput(window);
-    float movementModifier = 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) movementModifier += 5.0f;
-    if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) movementModifier += 5.0f;
-    cameraOffset.x += movement.x * 0.01f * movementModifier;
-    cameraOffset.y += movement.y * 0.01f * movementModifier;
-    cameraOffset.z += movement.z * 0.01f * movementModifier;
-    cameraOffset.pitch += movement.pitch * 0.01f * movementModifier;
-    cameraOffset.yaw += movement.yaw * 0.01f * movementModifier;
-    cameraOffset.roll += movement.roll * 0.01f * movementModifier;
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camera.ProcessKeyboard(LEFT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camera.ProcessKeyboard(RIGHT, deltaTime);
+
+    if (wasAnyInputPressed)
+    {
+        std::cout << "Camera transform {" << cameraTransform.pitch << ", " << cameraTransform.yaw << ", " << cameraTransform.roll << "}" << std::endl;
+    }
 
     // Wireframe mode toggle
-    if (hasKeyJustBeenPressed(window, GLFW_KEY_W)) {
+    if (hasKeyJustBeenPressed(window, GLFW_KEY_T)) {
         if (isWireframeModeEnabled) {
             std::cout << "Wireframe mode disabled" << std::endl;
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -721,6 +433,36 @@ void processInput(GLFWwindow* window)
 			CurrentRenderMode = GL_LINE_STRIP;
 		}
 	}   
+}
+
+// glfw: whenever the mouse moves, this callback is called
+// -------------------------------------------------------
+void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
+{
+    float xpos = static_cast<float>(xposIn);
+    float ypos = static_cast<float>(yposIn);
+
+    if (firstMouse)
+    {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+    lastX = xpos;
+    lastY = ypos;
+
+    camera.ProcessMouseMovement(xoffset, yoffset);
+}
+
+// glfw: whenever the mouse scroll wheel scrolls, this callback is called
+// ----------------------------------------------------------------------
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes

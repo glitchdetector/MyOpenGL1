@@ -141,6 +141,7 @@
     <ClCompile Include="ShaderLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Camera.h" />
     <ClInclude Include="components.h" />
     <ClInclude Include="entity.h" />
     <ClInclude Include="includes\glad\glad.h" />
@@ -430,9 +431,12 @@
     <ClInclude Include="includes\glm\vector_relational.hpp" />
     <ClInclude Include="includes\KHR\khrplatform.h" />
     <ClInclude Include="includes\stb_image.h" />
+    <ClInclude Include="Level.h" />
+    <ClInclude Include="ObjectFileLoader.h" />
     <ClInclude Include="ObjHelper.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="ShaderLoader.h" />
+    <ClInclude Include="Types.h" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="libs\glfw3.lib" />
